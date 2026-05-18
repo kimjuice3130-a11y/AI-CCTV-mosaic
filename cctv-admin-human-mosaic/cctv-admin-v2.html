@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>🤖 AI-CCTV-Mosaic: 정교한 인물 모자이크 시스템</title>
+    <script src="cctv-assets/react.production.min.js"></script>
+    <script src="cctv-assets/react-dom.production.min.js"></script>
+    <script src="cctv-assets/babel.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body, #root { height: 100%; width: 100%; }
+        body {
+            background: linear-gradient(135deg, #030712 0%, #0a1628 100%);
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            color: #e2e8f0;
+        }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0a1628; }
+        ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 4px; }
+        
+        /* 애니메이션 */
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // ==================== 서버 설정 ====================
+        const API_BASE_URL = "http://localhost:8000";
+        const UPLOAD_ENDPOINT = "/api/upload-video";
+        const STATUS_ENDPOINT = "/api/task-status";
+        const DOWNLOAD_ENDPOINT = "/api/download";
+
+        // ==================== 메인 애플리케이션 ====================
+        function App() {
+            const [step, setStep] = useState("upload"); // upload, processing, completed
+            const [file, setFile] = useState(null);
+            const [taskId, setTaskId] = useState(null);
+            const [status, setStatus] = useState({});
+            const [config, setConfig] = useState({
+                confidence: 0.5,
+                model_size: "m",
+                mosaic_strength: 15,
+                blur_kernel: 21,
+                extend_padding: 10
+            });
+            const [dragOver, setDragOver] = useState(false);
+            const pollIntervalRef = useRef(null);
+
+            // 작업 상태 폴링
+            useEffect(() => {
+                if (step === "processing" && taskId) {
+                    const pollStatus = async () => {
+                        try {
+                            const response = await fetch(`${API_BASE_URL}${STATUS_ENDPOINT}/${taskId}`);
+                            const data = await response.json();
+                            setStatus(data);
+
+                            if (data.status === "completed") {
+                                setStep("completed");
+                                if (pollIntervalRef.current) {
+                                    clearInterval(pollIntervalRef.current);
+                                }
+                            } else if (data.status === "failed") {
+                                setStep("upload");
+                                if (pollIntervalRef.current) {
+                                    clearInterval(pollIntervalRef.current);
+                                }
+                            }
+                        } catch (error) {
+                            console.error("상태 조회 실패:", error);
+                        }
+                    };
+
+                    pollStatus();
+                    pollIntervalRef.current = setInterval(pollStatus, 1000);
+
+                    return () => {
+                        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                    };
+                }
+            }, [step, taskId]);
+
+            const handleUpload = async (uploadFile) => {
+                if (!uploadFile) return;
+
+                setFile(uploadFile);
+                setStep("processing");
+
+                const formData = new FormData();
+                formData.append("file", uploadFile);
+                formData.append("confidence", config.confidence);
+                formData.append("model_size", config.model_size);
+                formData.append("mosaic_strength", config.mosaic_strength);
+                formData.append("blur_kernel", config.blur_kernel);
+                formData.append("extend_padding", config.extend_padding);
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}${UPLOAD_ENDPOINT}`, {
+                        method: "POST",
+                        body: formData
+                    });
+
+                    const data = await response.json();
+                    setTaskId(data.task_id);
+                    setStatus({
+                        task_id: data.task_id,
+                        status: "processing",
+                        progress: 0,
+                        message: "처리 시작 중..."
+                    });
+                } catch (error) {
+                    alert("업로드 실패: " + error.message);
+                    setStep("upload");
+                }
+            };
+
+            const handleDownload = async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}${DOWNLOAD_ENDPOINT}/${taskId}`);
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `cctv_mosaic_${taskId}.mp4`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } catch (error) {
+                    alert("다운로드 실패: " + error.message);
+                }
+            };
+
+            const handleReset = () => {
+                setStep("upload");
+                setFile(null);
+                setTaskId(null);
+                setStatus({});
+            };
+
+            return (
+                <div style={{ minHeight: "100vh", padding: "40px 20px", animation: "fadeIn 0.5s" }}>
+                    <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+                        {/* 헤더 */}
+                        <div style={{ textAlign: "center", marginBottom: "40px" }}>
+                            <div style={{ fontSize: "48px", marginBottom: "20px" }}>🤖</div>
+                            <h1 style={{ fontSize: "32px", fontWeight: "700", marginBottom: "8px" }}>
+                                AI-CCTV-Mosaic
+                            </h1>
+                            <p style={{ fontSize: "16px", color: "#94a3b8" }}>
+                                YOLO v8 기반 정교한 인물 모자이크 시스템
+                            </p>
+                        </div>
+
+                        {/* 단계별 UI */}
+                        {step === "upload" && (
+                            <UploadStep
+                                onUpload={handleUpload}
+                                config={config}
+                                onConfigChange={setConfig}
+                                dragOver={dragOver}
+                                setDragOver={setDragOver}
+                            />
+                        )}
+
+                        {step === "processing" && (
+                            <ProcessingStep status={status} />
+                        )}
+
+                        {step === "completed" && (
+                            <CompletedStep
+                                status={status}
+                                onDownload={handleDownload}
+                                onReset={handleReset}
+                            />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // ==================== 업로드 단계 ====================
+        function UploadStep({ onUpload, config, onConfigChange, dragOver, setDragOver }) {
+            const fileInputRef = useRef(null);
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setDragOver(true);
+            };
+
+            const handleDragLeave = () => {
+                setDragOver(false);
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                setDragOver(false);
+                if (e.dataTransfer.files.length > 0) {
+                    onUpload(e.dataTransfer.files[0]);
+                }
+            };
+
+            const handleFileSelect = (e) => {
+                if (e.target.files.length > 0) {
+                    onUpload(e.target.files[0]);
+                }
+            };
+
+            return (
+                <div style={{ animation: "slideUp 0.5s" }}>
+                    {/* 파일 업로드 */}
+                    <div
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{
+                            border: `3px dashed ${dragOver ? "#22c55e" : "#1e3a5f"}`,
+                            borderRadius: "16px",
+                            padding: "60px 20px",
+                            textAlign: "center",
+                            cursor: "pointer",
+                            background: dragOver ? "rgba(34, 197, 94, 0.05)" : "rgba(15, 23, 42, 0.5)",
+                            transition: "all 0.3s ease",
+                            marginBottom: "30px"
+                        }}
+                    >
+                        <div style={{ fontSize: "64px", marginBottom: "20px" }}>📹</div>
+                        <h2 style={{ fontSize: "24px", fontWeight: "600", marginBottom: "10px" }}>
+                            CCTV 영상 업로드
+                        </h2>
+                        <p style={{ fontSize: "14px", color: "#94a3b8", marginBottom: "20px" }}>
+                            클릭하거나 드래그하여 파일을 선택하세요
+                        </p>
+                        <p style={{ fontSize: "12px", color: "#64748b", marginBottom: "20px" }}>
+                            지원 형식: MP4, AVI, MOV, WebM (최대 1GB)
+                        </p>
+                        <button
+                            style={{
+                                background: "#1e40af",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: "8px",
+                                padding: "12px 24px",
+                                fontSize: "14px",
+                                fontWeight: "600",
+                                cursor: "pointer"
+                            }}
+                        >
+                            파일 선택
+                        </button>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="video/*"
+                            onChange={handleFileSelect}
+                            style={{ display: "none" }}
+                        />
+                    </div>
+
+                    {/* 설정 패널 */}
+                    <div style={{
+                        background: "rgba(15, 23, 42, 0.7)",
+                        border: "1px solid #1e3a5f",
+                        borderRadius: "12px",
+                        padding: "24px"
+                    }}>
+                        <h3 style={{ marginBottom: "20px", fontSize: "18px", fontWeight: "600" }}>
+                            ⚙️ 처리 설정
+                        </h3>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px" }}>
+                            {/* 감지 신뢰도 */}
+                            <div>
+                                <label style={{ display: "block", marginBottom: "8px", fontSize: "13px", color: "#94a3b8" }}>
+                                    감지 신뢰도: {config.confidence.toFixed(1)}
+                                </label>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="0.9"
+                                    step="0.1"
+                                    value={config.confidence}
+                                    onChange={(e) => onConfigChange({...config, confidence: parseFloat(e.target.value)})}
+                                    style={{ width: "100%" }}
+                                />
+                                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "4px" }}>
+                                    낮을수록 더 많은 사람을 감지합니다
+                                </div>
+                            </div>
+
+                            {/* 모자이크 강도 */}
+                            <div>
+                                <label style={{ display: "block", marginBottom: "8px", fontSize: "13px", color: "#94a3b8" }}>
+                                    모자이크 강도: {config.mosaic_strength}
+                                </label>
+                                <input
+                                    type="range"
+                                    min="5"
+                                    max="30"
+                                    step="1"
+                                    value={config.mosaic_strength}
+                                    onChange={(e) => onConfigChange({...config, mosaic_strength: parseInt(e.target.value)})}
+                                    style={{ width: "100%" }}
+                                />
+                                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "4px" }}>
+                                    높을수록 블록이 커집니다
+                                </div>
+                            </div>
+
+                            {/* 블러 커널 */}
+                            <div>
+                                <label style={{ display: "block", marginBottom: "8px", fontSize: "13px", color: "#94a3b8" }}>
+                                    블러 정도: {config.blur_kernel}
+                                </label>
+                                <input
+                                    type="range"
+                                    min="5"
+                                    max="51"
+                                    step="2"
+                                    value={config.blur_kernel}
+                                    onChange={(e) => onConfigChange({...config, blur_kernel: parseInt(e.target.value)})}
+                                    style={{ width: "100%" }}
+                                />
+                                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "4px" }}>
+                                    홀수만 가능합니다
+                                </div>
+                            </div>
+
+                            {/* 패딩 */}
+                            <div>
+                                <label style={{ display: "block", marginBottom: "8px", fontSize: "13px", color: "#94a3b8" }}>
+                                    확대 패딩: {config.extend_padding}px
+                                </label>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="50"
+                                    step="1"
+                                    value={config.extend_padding}
+                                    onChange={(e) => onConfigChange({...config, extend_padding: parseInt(e.target.value)})}
+                                    style={{ width: "100%" }}
+                                />
+                                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "4px" }}>
+                                    감지 박스 주변 여백
+                                </div>
+                            </div>
+
+                            {/* 모델 크기 */}
+                            <div>
+                                <label style={{ display: "block", marginBottom: "8px", fontSize: "13px", color: "#94a3b8" }}>
+                                    모델 크기
+                                </label>
+                                <select
+                                    value={config.model_size}
+                                    onChange={(e) => onConfigChange({...config, model_size: e.target.value})}
+                                    style={{
+                                        width: "100%",
+                                        padding: "8px 12px",
+                                        background: "#0f172a",
+                                        color: "#e2e8f0",
+                                        border: "1px solid #1e3a5f",
+                                        borderRadius: "6px"
+                                    }}
+                                >
+                                    <option value="n">Nano (빠름)</option>
+                                    <option value="m">Medium (균형)</option>
+                                    <option value="l">Large (정확함)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style={{
+                            marginTop: "16px",
+                            padding: "12px",
+                            background: "rgba(34, 197, 94, 0.1)",
+                            border: "1px solid #166534",
+                            borderRadius: "8px",
+                            fontSize: "12px",
+                            color: "#22c55e"
+                        }}>
+                            💡 팁: 조명이 어두운 영상은 감지 신뢰도를 0.3~0.4로 낮추세요
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ==================== 처리 단계 ====================
+        function ProcessingStep({ status }) {
+            return (
+                <div style={{
+                    background: "rgba(15, 23, 42, 0.7)",
+                    border: "1px solid #1e3a5f",
+                    borderRadius: "12px",
+                    padding: "40px",
+                    textAlign: "center",
+                    animation: "slideUp 0.5s"
+                }}>
+                    <div style={{
+                        width: "60px",
+                        height: "60px",
+                        margin: "0 auto 30px",
+                        animation: "spin 2s linear infinite"
+                    }}>
+                        🤖
+                    </div>
+
+                    <h2 style={{ fontSize: "24px", fontWeight: "600", marginBottom: "16px" }}>
+                        {status.message || "처리 중입니다..."}
+                    </h2>
+
+                    {/* 진행률 바 */}
+                    <div style={{
+                        width: "100%",
+                        height: "8px",
+                        background: "#0a1628",
+                        borderRadius: "4px",
+                        overflow: "hidden",
+                        marginBottom: "20px"
+                    }}>
+                        <div style={{
+                            height: "100%",
+                            width: `${status.progress || 0}%`,
+                            background: "linear-gradient(90deg, #3b82f6, #22c55e)",
+                            transition: "width 0.3s ease"
+                        }}/>
+                    </div>
+
+                    <p style={{ fontSize: "16px", fontWeight: "600", marginBottom: "30px" }}>
+                        {status.progress || 0}%
+                    </p>
+
+                    {/* 상태 정보 */}
+                    <div style={{
+                        background: "rgba(30, 58, 95, 0.5)",
+                        border: "1px solid #1e3a5f",
+                        borderRadius: "8px",
+                        padding: "16px",
+                        marginBottom: "20px",
+                        fontSize: "13px",
+                        color: "#94a3b8",
+                        fontFamily: "monospace"
+                    }}>
+                        <div>Task ID: {status.task_id}</div>
+                        <div>상태: {status.status}</div>
+                        <div>생성 시간: {new Date(status.created_at).toLocaleString('ko-KR')}</div>
+                    </div>
+
+                    <p style={{ color: "#64748b", fontSize: "12px" }}>
+                        🔔 처리가 완료될 때까지 기다려주세요...
+                    </p>
+                </div>
+            );
+        }
+
+        // ==================== 완료 단계 ====================
+        function CompletedStep({ status, onDownload, onReset }) {
+            const result = status.result || {};
+
+            return (
+                <div style={{
+                    background: "rgba(15, 23, 42, 0.7)",
+                    border: "1px solid #1e3a5f",
+                    borderRadius: "12px",
+                    padding: "40px",
+                    textAlign: "center",
+                    animation: "slideUp 0.5s"
+                }}>
+                    <div style={{ fontSize: "64px", marginBottom: "20px" }}>✅</div>
+
+                    <h2 style={{ fontSize: "28px", fontWeight: "700", marginBottom: "30px", color: "#22c55e" }}>
+                        처리 완료!
+                    </h2>
+
+                    {/* 결과 정보 */}
+                    <div style={{
+                        background: "rgba(30, 58, 95, 0.5)",
+                        border: "1px solid #1e3a5f",
+                        borderRadius: "8px",
+                        padding: "24px",
+                        marginBottom: "30px",
+                        textAlign: "left"
+                    }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+                            <div>
+                                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>
+                                    📁 입력 파일
+                                </div>
+                                <div style={{ fontSize: "14px", fontWeight: "600", wordBreak: "break-all" }}>
+                                    {result.input_file}
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>
+                                    👥 감지된 사람
+                                </div>
+                                <div style={{ fontSize: "24px", fontWeight: "700", color: "#22c55e" }}>
+                                    {result.total_persons}명
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>
+                                    ⏱️ 처리 시간
+                                </div>
+                                <div style={{ fontSize: "14px", fontWeight: "600" }}>
+                                    {result.processing_time_sec}초
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>
+                                    🎬 프레임 수
+                                </div>
+                                <div style={{ fontSize: "14px", fontWeight: "600" }}>
+                                    {result.processed_frames} / {result.total_frames}
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>
+                                    📊 해상도
+                                </div>
+                                <div style={{ fontSize: "14px", fontWeight: "600" }}>
+                                    {result.resolution}
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "4px" }}>
+                                    ⚡ 처리 속도
+                                </div>
+                                <div style={{ fontSize: "14px", fontWeight: "600" }}>
+                                    {result.avg_fps} FPS
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 버튼 */}
+                    <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
+                        <button
+                            onClick={onDownload}
+                            style={{
+                                background: "#22c55e",
+                                color: "#000",
+                                border: "none",
+                                borderRadius: "8px",
+                                padding: "12px 24px",
+                                fontSize: "14px",
+                                fontWeight: "700",
+                                cursor: "pointer",
+                                transition: "all 0.3s"
+                            }}
+                            onMouseEnter={(e) => e.target.style.opacity = "0.8"}
+                            onMouseLeave={(e) => e.target.style.opacity = "1"}
+                        >
+                            📥 다운로드
+                        </button>
+
+                        <button
+                            onClick={onReset}
+                            style={{
+                                background: "#1e293b",
+                                color: "#94a3b8",
+                                border: "1px solid #334155",
+                                borderRadius: "8px",
+                                padding: "12px 24px",
+                                fontSize: "14px",
+                                fontWeight: "600",
+                                cursor: "pointer",
+                                transition: "all 0.3s"
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = "#334155"}
+                            onMouseLeave={(e) => e.target.style.background = "#1e293b"}
+                        >
+                            ➕ 새 파일 처리
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // 앱 렌더링
+        ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+</body>
+</html>
