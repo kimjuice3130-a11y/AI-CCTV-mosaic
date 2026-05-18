@@ -1,0 +1,973 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>강남구 스마트 CCTV 관제센터</title>
+<script src="cctv-assets/react.production.min.js"></script>
+<script src="cctv-assets/react-dom.production.min.js"></script>
+<script src="cctv-assets/face-api.min.js"></script>
+<script src="cctv-assets/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body,#root{height:100%;width:100%}
+  body{background:#030712;font-family:system-ui,-apple-system,sans-serif;color:#e2e8f0}
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:#0a1628}
+  ::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:3px}
+  input{font-family:inherit}
+  button{font-family:inherit}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+  @keyframes ripple{0%{transform:scale(1);opacity:.6}100%{transform:scale(2.2);opacity:0}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ─── 상수 ─────────────────────────────────────────────────── */
+const RISK_COLOR = { 높음:"#ef4444", 중간:"#f59e0b", 낮음:"#22c55e" };
+const RISK_BG    = { 높음:"#450a0a", 중간:"#431407", 낮음:"#052e16" };
+
+const DISTRICTS = [
+  { id:"신사동",   path:"M 60,30 L 110,25 L 130,45 L 115,75 L 80,80 L 55,60 Z" },
+  { id:"압구정동", path:"M 110,25 L 170,18 L 195,40 L 185,65 L 150,70 L 130,45 Z" },
+  { id:"청담동",   path:"M 170,18 L 240,22 L 255,55 L 230,70 L 195,65 L 185,65 L 195,40 Z" },
+  { id:"삼성1동",  path:"M 240,22 L 310,30 L 320,60 L 295,80 L 255,75 L 230,70 L 255,55 Z" },
+  { id:"논현1동",  path:"M 55,60 L 80,80 L 85,110 L 60,125 L 38,105 L 40,78 Z" },
+  { id:"논현2동",  path:"M 80,80 L 115,75 L 130,45 L 150,70 L 155,100 L 130,115 L 100,120 L 85,110 Z" },
+  { id:"삼성2동",  path:"M 185,65 L 230,70 L 255,75 L 260,105 L 230,115 L 200,108 L 185,90 Z" },
+  { id:"역삼1동",  path:"M 38,105 L 60,125 L 85,110 L 100,120 L 100,155 L 70,165 L 42,150 L 30,130 Z" },
+  { id:"역삼2동",  path:"M 85,110 L 130,115 L 155,100 L 170,120 L 160,155 L 130,165 L 100,155 L 100,120 Z" },
+  { id:"대치4동",  path:"M 155,100 L 185,90 L 200,108 L 210,130 L 195,155 L 170,160 L 160,155 L 170,120 Z" },
+  { id:"대치2동",  path:"M 200,108 L 230,115 L 260,105 L 295,80 L 320,60 L 340,90 L 335,125 L 300,140 L 270,145 L 240,140 L 220,140 L 210,130 Z" },
+  { id:"대치1동",  path:"M 160,155 L 195,155 L 210,130 L 220,140 L 220,175 L 195,185 L 168,182 L 155,168 Z" },
+  { id:"도곡1동",  path:"M 42,150 L 70,165 L 100,155 L 105,185 L 85,205 L 55,205 L 35,185 Z" },
+  { id:"도곡2동",  path:"M 100,155 L 130,165 L 160,155 L 155,168 L 168,182 L 155,210 L 125,218 L 105,210 L 105,185 Z" },
+  { id:"개포3동",  path:"M 240,140 L 270,145 L 300,140 L 310,170 L 290,195 L 265,195 L 248,178 L 240,158 Z" },
+  { id:"일원1동",  path:"M 300,140 L 335,125 L 360,140 L 365,170 L 345,195 L 310,200 L 290,195 L 310,170 Z" },
+  { id:"개포2동",  path:"M 155,210 L 168,182 L 195,185 L 220,175 L 220,140 L 240,158 L 248,178 L 245,215 L 220,230 L 185,232 L 162,228 Z" },
+  { id:"수서동",   path:"M 310,200 L 345,195 L 365,170 L 390,185 L 400,215 L 380,240 L 350,248 L 320,238 L 305,222 Z" },
+  { id:"개포1동",  path:"M 105,210 L 125,218 L 155,210 L 162,228 L 155,255 L 128,265 L 105,258 L 95,235 Z" },
+  { id:"개포4동",  path:"M 55,205 L 85,205 L 105,210 L 95,235 L 85,255 L 62,260 L 42,245 L 40,225 Z" },
+  { id:"일원본동", path:"M 245,215 L 248,178 L 265,195 L 290,195 L 305,222 L 320,238 L 305,265 L 275,272 L 248,262 L 240,242 Z" },
+  { id:"세곡동",   path:"M 305,265 L 350,248 L 380,240 L 400,215 L 425,235 L 430,270 L 410,300 L 375,315 L 340,310 L 310,295 Z" },
+];
+
+const CCTVS = [
+  { id:"CAM-001", name:"신사동 사거리",    area:"신사동",   x:78,  y:52,  status:"정상"  },
+  { id:"CAM-002", name:"압구정 로데오",    area:"압구정동", x:150, y:45,  status:"정상"  },
+  { id:"CAM-003", name:"청담 CGV 앞",      area:"청담동",   x:215, y:42,  status:"정상"  },
+  { id:"CAM-004", name:"코엑스 광장",      area:"삼성1동",  x:278, y:52,  status:"정상"  },
+  { id:"CAM-005", name:"논현 교차로",      area:"논현2동",  x:115, y:95,  status:"정상"  },
+  { id:"CAM-006", name:"강남역 1번출구",   area:"역삼1동",  x:68,  y:132, status:"정상"  },
+  { id:"CAM-007", name:"테헤란로 교차로",  area:"역삼2동",  x:128, y:135, status:"오류"  },
+  { id:"CAM-008", name:"대치4동 학원가",   area:"대치4동",  x:182, y:128, status:"정상"  },
+  { id:"CAM-009", name:"선릉역 환승구",    area:"대치2동",  x:268, y:115, status:"정상"  },
+  { id:"CAM-010", name:"대치1동 공원",     area:"대치1동",  x:188, y:165, status:"정상"  },
+  { id:"CAM-011", name:"도곡 레미안",      area:"도곡1동",  x:72,  y:178, status:"점검중"},
+  { id:"CAM-012", name:"도곡2동 입구",     area:"도곡2동",  x:132, y:185, status:"정상"  },
+  { id:"CAM-013", name:"개포3동 주민센터", area:"개포3동",  x:272, y:168, status:"정상"  },
+  { id:"CAM-014", name:"일원역 광장",      area:"일원1동",  x:330, y:165, status:"정상"  },
+  { id:"CAM-015", name:"수서역 버스환승",  area:"수서동",   x:352, y:212, status:"정상"  },
+  { id:"CAM-016", name:"개포2동 공원",     area:"개포2동",  x:205, y:200, status:"정상"  },
+  { id:"CAM-017", name:"개포1동 사거리",   area:"개포1동",  x:128, y:238, status:"정상"  },
+  { id:"CAM-018", name:"세곡동 입구",      area:"세곡동",   x:365, y:272, status:"정상"  },
+];
+
+const INIT_ALERTS = [
+  { id:1, camId:"CAM-004", camName:"코엑스 광장",    time:"14:23:11", type:"군중 밀집",     risk:"높음", viewed:false },
+  { id:2, camId:"CAM-001", camName:"신사동 사거리",  time:"14:18:44", type:"쓰러짐 감지",   risk:"높음", viewed:false },
+  { id:3, camId:"CAM-006", camName:"강남역 1번출구", time:"14:11:07", type:"폭행 의심",     risk:"높음", viewed:true  },
+  { id:4, camId:"CAM-003", camName:"청담 CGV 앞",    time:"13:55:30", type:"침입 의심",     risk:"중간", viewed:false },
+  { id:5, camId:"CAM-009", camName:"선릉역 환승구",  time:"13:42:19", type:"화재/연기 의심", risk:"중간", viewed:true  },
+  { id:6, camId:"CAM-014", camName:"일원역 광장",    time:"13:30:05", type:"급정거 차량",   risk:"낮음", viewed:true  },
+  { id:7, camId:"CAM-017", camName:"개포1동 사거리", time:"13:15:22", type:"침입 의심",     risk:"낮음", viewed:true  },
+];
+
+const TYPE_STATS = [
+  { type:"군중 밀집",    count:8 },
+  { type:"쓰러짐 감지",  count:5 },
+  { type:"폭행 의심",    count:4 },
+  { type:"침입 의심",    count:6 },
+  { type:"화재/연기",    count:3 },
+  { type:"급정거 차량",  count:9 },
+];
+
+/* ─── 브라우저 픽셀 기반 동적 객체 탐지 ─────────────────────────── */
+function clamp(n,min,max){ return Math.max(min,Math.min(max,n)); }
+
+function rectIou(a,b){
+  const ax2=a.x+a.w, ay2=a.y+a.h, bx2=b.x+b.w, by2=b.y+b.h;
+  const ix=Math.max(0,Math.min(ax2,bx2)-Math.max(a.x,b.x));
+  const iy=Math.max(0,Math.min(ay2,by2)-Math.max(a.y,b.y));
+  const inter=ix*iy;
+  const union=a.w*a.h+b.w*b.h-inter;
+  return union>0 ? inter/union : 0;
+}
+
+function mergeRegions(regions){
+  const sorted=[...regions].sort((a,b)=>(b.w*b.h)-(a.w*a.h));
+  const merged=[];
+  sorted.forEach(r=>{
+    const hit=merged.find(m=>m.type===r.type && (rectIou(m,r)>0.08 || Math.hypot((m.x+m.w/2)-(r.x+r.w/2),(m.y+m.h/2)-(r.y+r.h/2))<0.16));
+    if(hit){
+      const x1=Math.min(hit.x,r.x), y1=Math.min(hit.y,r.y);
+      const x2=Math.max(hit.x+hit.w,r.x+r.w), y2=Math.max(hit.y+hit.h,r.y+r.h);
+      hit.x=x1; hit.y=y1; hit.w=x2-x1; hit.h=y2-y1;
+      hit.score=Math.max(hit.score||0,r.score||0);
+    } else {
+      merged.push({...r});
+    }
+  });
+  return merged.slice(0,10);
+}
+
+function smoothRegions(current, previous){
+  return current.map(r=>{
+    const match=previous.find(p=>p.type===r.type && (rectIou(p,r)>0.06 || Math.hypot((p.x+p.w/2)-(r.x+r.w/2),(p.y+p.h/2)-(r.y+r.h/2))<0.2));
+    if(!match) return r;
+    const keep=0.55, next=0.45;
+    return {
+      ...r,
+      x:match.x*keep+r.x*next,
+      y:match.y*keep+r.y*next,
+      w:match.w*keep+r.w*next,
+      h:match.h*keep+r.h*next
+    };
+  });
+}
+
+function detectPrivacyRegions(ctx, canvas, state){
+  const w=canvas.width, h=canvas.height;
+  if(w<2 || h<2) return [];
+
+  const frame=ctx.getImageData(0,0,w,h);
+  const data=frame.data;
+  const prev=state.prevFrame;
+  const step=Math.max(4, Math.round(Math.min(w,h)/100));
+  const cols=Math.ceil(w/step), rows=Math.ceil(h/step);
+  const motionHits=new Uint8Array(cols*rows);
+  const skinHits=new Uint8Array(cols*rows);
+
+  for(let gy=0; gy<rows; gy++){
+    const y=clamp(Math.floor(gy*step+step/2),0,h-1);
+    for(let gx=0; gx<cols; gx++){
+      const x=clamp(Math.floor(gx*step+step/2),0,w-1);
+      const idx=(y*w+x)*4;
+      const r=data[idx], g=data[idx+1], b=data[idx+2];
+      const max=Math.max(r,g,b), min=Math.min(r,g,b);
+      const cb = 128 - 0.168736*r - 0.331264*g + 0.5*b;
+      const cr = 128 + 0.5*r - 0.418688*g - 0.081312*b;
+      const skinRgb = r>50 && g>28 && b>16 && r>g*0.95 && r>b*1.08 && max-min>12;
+      const skinYCbCr = cr>132 && cr<188 && cb>72 && cb<145 && r>38 && g>24 && b>14;
+      const skin = (skinRgb || skinYCbCr) && !(g>b*1.65 && r<105);
+      let motion=false;
+      if(prev){
+        const diff=Math.abs(r-prev[idx])+Math.abs(g-prev[idx+1])+Math.abs(b-prev[idx+2]);
+        motion = diff>34 && y>h*0.035;
+      }
+      const gi=gy*cols+gx;
+      if(motion) motionHits[gi]=1;
+      if(skin) skinHits[gi]=1;
+    }
+  }
+
+  state.prevFrame = new Uint8ClampedArray(data);
+  if(!prev) return state.lastRegions||[];
+
+  const visited=new Uint8Array(cols*rows);
+  const regions=[];
+  const stack=[];
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]];
+
+  for(let gy=0; gy<rows; gy++){
+    for(let gx=0; gx<cols; gx++){
+      const start=gy*cols+gx;
+      if(!(motionHits[start] || skinHits[start]) || visited[start]) continue;
+      let minX=gx, maxX=gx, minY=gy, maxY=gy, count=0, skinCount=0, motionCount=0;
+      let skinMinX=99999, skinMaxX=-1, skinMinY=99999, skinMaxY=-1;
+      stack.length=0;
+      stack.push([gx,gy]);
+      visited[start]=1;
+      while(stack.length){
+        const [cx,cy]=stack.pop();
+        const ci=cy*cols+cx;
+        count++;
+        if(motionHits[ci]) motionCount++;
+        if(skinHits[ci]){
+          skinCount++;
+          skinMinX=Math.min(skinMinX,cx); skinMaxX=Math.max(skinMaxX,cx);
+          skinMinY=Math.min(skinMinY,cy); skinMaxY=Math.max(skinMaxY,cy);
+        }
+        minX=Math.min(minX,cx); maxX=Math.max(maxX,cx);
+        minY=Math.min(minY,cy); maxY=Math.max(maxY,cy);
+        dirs.forEach(([dx,dy])=>{
+          const nx=cx+dx, ny=cy+dy;
+          if(nx<0||ny<0||nx>=cols||ny>=rows) return;
+          const ni=ny*cols+nx;
+          if((motionHits[ni] || skinHits[ni]) && !visited[ni]){ visited[ni]=1; stack.push([nx,ny]); }
+        });
+      }
+
+      if(count<6 || (motionCount<4 && skinCount<2)) continue;
+      let px=minX*step, py=minY*step, pw=(maxX-minX+1)*step, ph=(maxY-minY+1)*step;
+      const aspect=pw/Math.max(1,ph);
+      const area=(pw*ph)/(w*h);
+      if(area<0.001 || area>0.72) continue;
+
+      const pad=Math.max(8, step*3);
+      px=clamp(px-pad,0,w-1); py=clamp(py-pad,0,h-1);
+      pw=clamp(pw+pad*2,step,w-px); ph=clamp(ph+pad*2,step,h-py);
+
+      const isHuman = skinCount>=1 || (ph>h*0.12 && aspect<1.35) || (motionCount>18 && ph>h*0.08);
+      if(isHuman){
+        regions.push({type:"body",x:px/w,y:py/h,w:pw/w,h:ph/h,score:motionCount+skinCount*2});
+        if(skinCount>0){
+          const sx=skinMinX*step, sy=skinMinY*step;
+          const sw=(skinMaxX-skinMinX+1)*step, sh=(skinMaxY-skinMinY+1)*step;
+          const cx=sx+sw/2;
+          const faceW=clamp(Math.max(sw*2.0, w*0.055), w*0.045, w*0.18);
+          const faceH=clamp(Math.max(sh*2.1, faceW*0.95, h*0.065), h*0.055, h*0.22);
+          regions.push({type:"face",x:clamp(cx-faceW/2,0,w-1)/w,y:clamp(sy-faceH*0.25,0,h-1)/h,w:clamp(faceW,step,w)/w,h:clamp(faceH,step,h)/h,score:skinCount});
+        }
+      }
+    }
+  }
+
+  let next=mergeRegions(regions).filter(r=>r.w*r.h>0.001);
+  next=smoothRegions(next, state.lastRegions||[]);
+
+  if(next.length===0 && state.lastRegions?.length && state.missFrames<12){
+    state.missFrames=(state.missFrames||0)+1;
+    return state.lastRegions;
+  }
+  state.missFrames=0;
+  state.lastRegions=next;
+  return next;
+}
+
+/* ─── 모자이크 적용 ─ */
+function applyMosaicToRegions(ctx, canvas, regions) {
+  regions.forEach(({x,y,w,h}) => {
+    const px = Math.max(0, Math.floor(x * canvas.width));
+    const py = Math.max(0, Math.floor(y * canvas.height));
+    const pw = Math.min(Math.floor(w * canvas.width),  canvas.width  - px);
+    const ph = Math.min(Math.floor(h * canvas.height), canvas.height - py);
+    if (pw <= 0 || ph <= 0) return;
+    const block = Math.max(8, Math.floor(Math.min(pw,ph)/5));
+    const id = ctx.getImageData(px,py,pw,ph);
+    const d  = id.data;
+    for (let by=0; by<ph; by+=block) {
+      for (let bx=0; bx<pw; bx+=block) {
+        const i=(by*pw+bx)*4, r=d[i], g=d[i+1], b=d[i+2];
+        for (let dy=0;dy<block&&by+dy<ph;dy++)
+          for (let dx=0;dx<block&&bx+dx<pw;dx++) {
+            const j=((by+dy)*pw+(bx+dx))*4;
+            d[j]=r;d[j+1]=g;d[j+2]=b;
+          }
+      }
+    }
+    ctx.putImageData(id,px,py);
+  });
+}
+
+/* ─── 영상 모자이크 프로세서 ────────────────────────────────── */
+function VideoMosaicProcessor({src, camId, onProcessed, onClose}) {
+  const videoRef  = useRef(null);
+  const canvasRef = useRef(null);
+  const animRef   = useRef(null);
+  const regRef    = useRef([]);
+  const frameStateRef = useRef({prevFrame:null,lastRegions:[],missFrames:0});
+  const reportRef = useRef(0);
+  const faceDetectorRef = useRef(null);
+  const faceDetectBusyRef = useRef(false);
+  const lastFaceDetectRef = useRef(0);
+  const faceApiReadyRef = useRef(false);
+  const faceApiBusyRef = useRef(false);
+  const lastFaceApiRef = useRef(0);
+  const [step, setStep]   = useState("loading");
+  const [msg,  setMsg]    = useState("영상 로딩 중...");
+  const [prog, setProg]   = useState(0);
+  const [regCount, setRegCount] = useState(0);
+
+  useEffect(()=>{
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if(!video||!canvas) return;
+
+    video.onloadeddata = async ()=>{
+      setStep("analyzing");
+      if(window.faceapi?.nets?.tinyFaceDetector){
+        setMsg("로컬 얼굴 모델 로딩 중...");
+        try {
+          await faceapi.nets.tinyFaceDetector.loadFromUri("cctv-assets/models");
+          faceApiReadyRef.current = true;
+        } catch(e) {
+          console.warn("face-api model load failed", e);
+          faceApiReadyRef.current = false;
+        }
+      }
+      if(!faceApiReadyRef.current && "FaceDetector" in window){
+        try { faceDetectorRef.current = new FaceDetector({fastMode:true,maxDetectedFaces:8}); }
+        catch(e){ faceDetectorRef.current = null; }
+      }
+      setMsg(faceApiReadyRef.current ? "로컬 얼굴 모델 준비 완료..." : faceDetectorRef.current ? "브라우저 얼굴 감지 준비 중..." : "프레임별 픽셀 분석 준비 중...");
+      canvas.width  = video.videoWidth  || 640;
+      canvas.height = video.videoHeight || 360;
+      setProg(65);
+      setStep("done");
+      setMsg(faceApiReadyRef.current ? "사람 추적 · 얼굴/신체 모자이크 중" : faceDetectorRef.current ? "사람 추적 · 얼굴/신체 모자이크 중" : "사람 픽셀 추적 · 얼굴/신체 모자이크 중");
+      onProcessed&&onProcessed([]);
+
+      video.loop=true;
+      video.play().catch(()=>{});
+
+      const draw=()=>{
+        if(video.paused||video.ended){ animRef.current=requestAnimationFrame(draw); return; }
+        if(canvas.width !== (video.videoWidth || 640) || canvas.height !== (video.videoHeight || 360)){
+          canvas.width  = video.videoWidth  || 640;
+          canvas.height = video.videoHeight || 360;
+        }
+        const c = canvas.getContext("2d");
+        c.drawImage(video,0,0,canvas.width,canvas.height);
+        const t=Date.now();
+
+        if(faceApiReadyRef.current && !faceApiBusyRef.current && t-lastFaceApiRef.current>220){
+          faceApiBusyRef.current=true;
+          lastFaceApiRef.current=t;
+          faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({inputSize:608,scoreThreshold:0.12})).then(detections=>{
+            const vw=video.videoWidth||canvas.width, vh=video.videoHeight||canvas.height;
+            const detected=(detections||[]).map(det=>{
+              const b=det.box;
+              const padX=b.width*0.18, padY=b.height*0.16;
+              const x=clamp(b.x-padX,0,vw-1), y=clamp(b.y-padY,0,vh-1);
+              const ww=clamp(b.width+padX*2,8,vw-x), hh=clamp(b.height+padY*2,8,vh-y);
+              return {type:"face",x:x/vw,y:y/vh,w:ww/vw,h:hh/vh};
+            }).filter(r=>r.w*r.h>0.0012);
+            if(detected.length){
+              frameStateRef.current.modelRegions = smoothRegions(detected, frameStateRef.current.lastRegions||[]);
+              frameStateRef.current.modelAt = Date.now();
+              frameStateRef.current.lastRegions = frameStateRef.current.modelRegions;
+            }
+          }).catch(()=>{}).finally(()=>{ faceApiBusyRef.current=false; });
+        }
+
+        if(!faceApiReadyRef.current && faceDetectorRef.current && !faceDetectBusyRef.current && t-lastFaceDetectRef.current>160){
+          faceDetectBusyRef.current=true;
+          lastFaceDetectRef.current=t;
+          faceDetectorRef.current.detect(video).then(faces=>{
+            const vw=video.videoWidth||canvas.width, vh=video.videoHeight||canvas.height;
+            const detected=(faces||[]).map(face=>{
+              const b=face.boundingBox;
+              const padX=b.width*0.22, padY=b.height*0.18;
+              const x=clamp(b.x-padX,0,vw-1), y=clamp(b.y-padY,0,vh-1);
+              const ww=clamp(b.width+padX*2,8,vw-x), hh=clamp(b.height+padY*2,8,vh-y);
+              return {type:"face",x:x/vw,y:y/vh,w:ww/vw,h:hh/vh};
+            }).filter(r=>r.w*r.h>0.0015);
+            if(detected.length){
+              frameStateRef.current.detectorRegions = smoothRegions(detected, frameStateRef.current.lastRegions||[]);
+              frameStateRef.current.detectorAt = Date.now();
+              frameStateRef.current.lastRegions = frameStateRef.current.detectorRegions;
+            }
+          }).catch(()=>{}).finally(()=>{ faceDetectBusyRef.current=false; });
+        }
+
+        const modelFresh = frameStateRef.current.modelRegions && t-(frameStateRef.current.modelAt||0)<850;
+        const detectorFresh = frameStateRef.current.detectorRegions && t-(frameStateRef.current.detectorAt||0)<650;
+        regRef.current = modelFresh ? frameStateRef.current.modelRegions : detectorFresh ? frameStateRef.current.detectorRegions : detectPrivacyRegions(c, canvas, frameStateRef.current);
+        applyMosaicToRegions(c,canvas,regRef.current);
+        if(t-reportRef.current>450){
+          reportRef.current=t;
+          setRegCount(regRef.current.length);
+          setProg(100);
+          onProcessed&&onProcessed(regRef.current);
+        }
+
+        regRef.current.forEach(({x,y,w,h,type})=>{
+          const px=x*canvas.width, py=y*canvas.height;
+          const pw=w*canvas.width,  ph=h*canvas.height;
+          c.strokeStyle = "#22c55e";
+          c.lineWidth=2; c.setLineDash([4,3]);
+          c.strokeRect(px,py,pw,ph); c.setLineDash([]);
+          c.fillStyle = "rgba(34,197,94,0.08)";
+          c.fillRect(px,py,pw,ph);
+          c.fillStyle="#22c55e";
+          c.font="bold 11px monospace";
+          c.fillText("█ 사람 보호",px+4,py+14);
+        });
+
+        const now=new Date();
+        c.fillStyle="rgba(0,0,0,0.7)";
+        c.fillRect(0,0,canvas.width,22);
+        c.fillStyle="#22c55e"; c.font="11px monospace";
+        c.fillText(`● MOSAIC-ON  ${now.toLocaleTimeString("ko-KR")}  ${camId}`,8,14);
+        animRef.current=requestAnimationFrame(draw);
+      };
+      animRef.current=requestAnimationFrame(draw);
+    };
+    video.onerror=()=>{ setStep("error"); setMsg("영상 로드 실패"); };
+    return ()=>cancelAnimationFrame(animRef.current);
+  },[src,camId]);
+
+  const stepColor = step==="done"?"#22c55e":step==="error"?"#ef4444":"#f59e0b";
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300}}>
+      <div style={{background:"#0f172a",border:"1px solid #1e3a5f",borderRadius:14,padding:22,width:"min(740px,96%)",maxHeight:"96vh",overflow:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:10,height:10,borderRadius:"50%",background:stepColor,
+              animation:step==="analyzing"?"pulse 1s infinite":"none"}}/>
+            <span style={{color:stepColor,fontSize:13,fontFamily:"monospace"}}>{msg}</span>
+          </div>
+          <button onClick={onClose} style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:6,padding:"4px 14px",cursor:"pointer",fontSize:13}}>✕ 닫기</button>
+        </div>
+
+        <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+          <span style={{background:"#052e16",color:"#22c55e",border:"1px solid #166534",fontSize:11,padding:"2px 10px",borderRadius:20}}>🛡️ 자동 모자이크</span>
+          <span style={{background:"#172554",color:"#60a5fa",border:"1px solid #1e40af",fontSize:11,padding:"2px 10px",borderRadius:20}}>🎯 사람 추적</span>
+          <span style={{background:"#431407",color:"#f59e0b",border:"1px solid #78350f",fontSize:11,padding:"2px 10px",borderRadius:20}}>▦ 모자이크/블러</span>
+          {step==="done"&&<span style={{background:"#0f2a1a",color:"#22c55e",border:"1px solid #166534",fontSize:11,padding:"2px 10px",borderRadius:20}}>{regCount}개 영역 처리됨</span>}
+        </div>
+
+        <div style={{position:"relative",background:"#000",borderRadius:8,overflow:"hidden",minHeight:200}}>
+          {step!=="done"&&(
+            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.75)",zIndex:5}}>
+              <div style={{textAlign:"center",color:stepColor}}>
+                <div style={{fontSize:40,marginBottom:12}}>{step==="loading"?"⏳":"🤖"}</div>
+                <div style={{fontFamily:"monospace",fontSize:14}}>{msg}</div>
+                {step==="analyzing"&&<div style={{color:"#64748b",fontSize:12,marginTop:6}}>브라우저 얼굴 감지를 우선 사용하고 픽셀 분석으로 보조 중</div>}
+              </div>
+            </div>
+          )}
+          <canvas ref={canvasRef} style={{width:"100%",display:"block"}}/>
+        </div>
+
+        <video ref={videoRef} src={src} style={{display:"none"}} crossOrigin="anonymous" muted playsInline/>
+
+        {step==="done"&&(
+          <div style={{marginTop:10,display:"flex",alignItems:"center",gap:10}}>
+            <div style={{flex:1,height:4,background:"#1e293b",borderRadius:2}}>
+              <div style={{width:`${prog}%`,height:"100%",background:prog<100?"#f59e0b":"#22c55e",borderRadius:2,transition:"width 0.3s"}}/>
+            </div>
+            <span style={{color:"#94a3b8",fontSize:11,fontFamily:"monospace",minWidth:34}}>{prog}%</span>
+          </div>
+        )}
+        <div style={{marginTop:10,color:"#334155",fontSize:11,textAlign:"center"}}>
+          ※ 영상 분석은 브라우저에서만 처리되며 외부 서버에 영상이 저장되지 않습니다
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── CAM 상세 모달 ─────────────────────────────────────────── */
+function CCTVModal({cam, onClose, stored, onStore}) {
+  const fileRef = useRef(null);
+  const [showProc, setShowProc] = useState(false);
+  const [curSrc,   setCurSrc]   = useState(stored?.src||null);
+  const [regions,  setRegions]  = useState(stored?.regions||[]);
+  const [dragOver, setDragOver] = useState(false);
+
+  const loadFile = f => {
+    if(!f) return;
+    const url=URL.createObjectURL(f);
+    setCurSrc(url); setShowProc(true);
+  };
+
+  const handleFile = e => loadFile(e.target.files[0]);
+  const handleDrop = e => { e.preventDefault(); setDragOver(false); loadFile(e.dataTransfer.files[0]); };
+
+  const handleProcessed = r => {
+    setRegions(r);
+    onStore(cam.id,{src:curSrc,regions:r});
+  };
+
+  const statusCol = cam.status==="정상"?"#22c55e":cam.status==="오류"?"#ef4444":"#f59e0b";
+  const statusBg  = cam.status==="정상"?"#052e16":cam.status==="오류"?"#450a0a":"#431407";
+  const statusBd  = cam.status==="정상"?"#166534":cam.status==="오류"?"#7f1d1d":"#78350f";
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}
+      onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:"#0f172a",border:"1px solid #1e3a5f",borderRadius:14,width:"min(640px,96%)",maxHeight:"92vh",overflow:"auto",padding:24}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:9,height:9,borderRadius:"50%",background:statusCol,boxShadow:`0 0 7px ${statusCol}`}}/>
+              <span style={{color:"#e2e8f0",fontSize:18,fontWeight:700}}>{cam.id}</span>
+              <span style={{color:"#94a3b8",fontSize:13}}>{cam.name}</span>
+            </div>
+            <div style={{color:"#475569",fontSize:12,marginTop:4}}>📍 서울시 강남구 {cam.area}</div>
+          </div>
+          <button onClick={onClose} style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:13}}>✕ 닫기</button>
+        </div>
+
+        <div style={{display:"flex",gap:7,marginBottom:18,flexWrap:"wrap"}}>
+          <span style={{background:"#052e16",color:"#22c55e",border:"1px solid #166534",fontSize:11,padding:"3px 10px",borderRadius:20}}>🔒 모자이크 ON</span>
+          <span style={{background:"#172554",color:"#60a5fa",border:"1px solid #1e40af",fontSize:11,padding:"3px 10px",borderRadius:20}}>🎯 사람 추적</span>
+          <span style={{background:statusBg,color:statusCol,border:`1px solid ${statusBd}`,fontSize:11,padding:"3px 10px",borderRadius:20}}>{cam.status}</span>
+        </div>
+
+        {!curSrc ? (
+          <div
+            onDragOver={e=>{e.preventDefault();setDragOver(true)}}
+            onDragLeave={()=>setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={()=>fileRef.current?.click()}
+            style={{border:`2px dashed ${dragOver?"#22c55e":"#1e3a5f"}`,borderRadius:12,padding:52,textAlign:"center",cursor:"pointer",transition:"all 0.2s",background:dragOver?"rgba(34,197,94,0.04)":"transparent"}}>
+            <div style={{fontSize:52,marginBottom:14}}>📹</div>
+            <div style={{color:"#e2e8f0",fontSize:16,fontWeight:600,marginBottom:8}}>CCTV 영상 업로드</div>
+            <div style={{color:"#64748b",fontSize:13,marginBottom:6}}>클릭하거나 파일을 드래그하세요</div>
+            <div style={{color:"#334155",fontSize:11,marginBottom:16}}>MP4, MOV, AVI, WebM 지원</div>
+            <div style={{display:"inline-block",background:"#1e3a5f",color:"#60a5fa",borderRadius:8,padding:"8px 22px",fontSize:13,fontWeight:600}}>파일 선택</div>
+          </div>
+        ) : (
+          <div>
+            <div style={{background:"#0a1628",borderRadius:10,padding:16,border:"1px solid #166534",marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{fontSize:30}}>🎬</div>
+                  <div>
+                    <div style={{color:"#22c55e",fontSize:13,fontWeight:600}}>모자이크 처리 완료</div>
+                    <div style={{color:"#475569",fontSize:12}}>{regions.length}개 영역 감지 · {cam.name}</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>setShowProc(true)} style={{background:"#22c55e",color:"#000",border:"none",borderRadius:7,padding:"7px 16px",cursor:"pointer",fontSize:13,fontWeight:700}}>▶ 재생</button>
+                  <button onClick={()=>fileRef.current?.click()} style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:7,padding:"7px 12px",cursor:"pointer",fontSize:12}}>재업로드</button>
+                </div>
+              </div>
+              {regions.length>0&&(
+                <div style={{marginTop:12,display:"flex",flexWrap:"wrap",gap:6}}>
+                  {regions.map((r,i)=>(
+                    <span key={i} style={{background:"#052e16",color:"#22c55e",fontSize:11,padding:"2px 9px",borderRadius:10,border:"1px solid #166534"}}>
+                      █ 사람 보호 #{i+1}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{padding:"10px 14px",background:"#0a1628",borderRadius:8,border:"1px solid #1e293b",display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:18}}>🛡️</span>
+              <span style={{color:"#64748b",fontSize:12,lineHeight:1.6}}>브라우저 내장 얼굴 감지를 우선 사용하고, 지원되지 않는 경우 픽셀 분석으로 얼굴 후보만 모자이크합니다. 원본 영상은 저장되지 않습니다.</span>
+            </div>
+          </div>
+        )}
+        <input ref={fileRef} type="file" accept="video/*" onChange={handleFile} style={{display:"none"}}/>
+      </div>
+
+      {showProc&&curSrc&&(
+        <VideoMosaicProcessor src={curSrc} camId={cam.id} onProcessed={handleProcessed} onClose={()=>setShowProc(false)}/>
+      )}
+    </div>
+  );
+}
+
+/* ─── 강남구 지도 ───────────────────────────────────────────── */
+function MapView({cctvs, onCamClick}) {
+  const [hovCam,  setHovCam]  = useState(null);
+  const [hovDist, setHovDist] = useState(null);
+
+  const distCenter = d => {
+    const nums = d.path.match(/-?[\d.]+\s*,\s*-?[\d.]+/g)||[];
+    const pts  = nums.map(p=>p.split(",").map(Number));
+    if(!pts.length) return {cx:0,cy:0};
+    return { cx:pts.reduce((s,p)=>s+p[0],0)/pts.length, cy:pts.reduce((s,p)=>s+p[1],0)/pts.length };
+  };
+
+  return (
+    <div style={{background:"#0a1628",borderRadius:12,border:"1px solid #1e3a5f",overflow:"hidden"}}>
+      <div style={{padding:"12px 18px",background:"#0f1a2e",borderBottom:"1px solid #1e293b",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div style={{color:"#60a5fa",fontWeight:700,fontSize:15}}>📍 강남구 CCTV 관제 지도</div>
+        <div style={{display:"flex",gap:14,fontSize:12}}>
+          <span style={{color:"#22c55e"}}>● 정상 {cctvs.filter(c=>c.status==="정상").length}</span>
+          <span style={{color:"#ef4444"}}>● 오류 {cctvs.filter(c=>c.status==="오류").length}</span>
+          <span style={{color:"#f59e0b"}}>● 점검중 {cctvs.filter(c=>c.status==="점검중").length}</span>
+        </div>
+      </div>
+      <div style={{padding:"16px 20px"}}>
+        <svg viewBox="0 0 470 330" width="100%" style={{display:"block"}}>
+          {[...Array(10)].map((_,i)=><line key={`v${i}`} x1={i*47} y1={0} x2={i*47} y2={330} stroke="#0d1f35" strokeWidth={0.8}/>)}
+          {[...Array(7)].map((_,i)=><line key={`h${i}`} x1={0} y1={i*47} x2={470} y2={i*47} stroke="#0d1f35" strokeWidth={0.8}/>)}
+
+          {DISTRICTS.map(d=>(
+            <path key={d.id} d={d.path}
+              fill={hovDist===d.id?"rgba(59,130,246,0.28)":"rgba(30,58,95,0.32)"}
+              stroke={hovDist===d.id?"#3b82f6":"#1e3a5f"}
+              strokeWidth={hovDist===d.id?2:1}
+              onMouseEnter={()=>setHovDist(d.id)}
+              onMouseLeave={()=>setHovDist(null)}
+              style={{transition:"all 0.15s",cursor:"default"}}/>
+          ))}
+          {DISTRICTS.map(d=>{
+            const {cx,cy}=distCenter(d);
+            return (
+              <text key={d.id+"l"} x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
+                fill={hovDist===d.id?"#93c5fd":"rgba(148,163,184,0.5)"}
+                fontSize="7" fontFamily="monospace" fontWeight="600"
+                style={{pointerEvents:"none",userSelect:"none"}}>
+                {d.id}
+              </text>
+            );
+          })}
+
+          <path d="M 0,8 Q 120,0 240,10 Q 340,4 470,12 L 470,0 L 0,0 Z"
+            fill="rgba(37,99,235,0.2)" stroke="rgba(59,130,246,0.4)" strokeWidth={0.8}/>
+          <text x="235" y="6" textAnchor="middle" fill="rgba(147,197,253,0.45)" fontSize="8" fontFamily="monospace">한 강</text>
+
+          <path d="M 30,140 L 430,140" stroke="rgba(71,85,105,0.5)" strokeWidth={2.5}/>
+          <path d="M 200,20 L 200,310" stroke="rgba(71,85,105,0.45)" strokeWidth={2}/>
+          <text x="218" y="137" fill="rgba(100,116,139,0.6)" fontSize="7.5" fontFamily="monospace">테헤란로</text>
+
+          {cctvs.map(cam=>{
+            const isH=hovCam===cam.id;
+            const col=cam.status==="정상"?"#22c55e":cam.status==="오류"?"#ef4444":"#f59e0b";
+            const num=cam.id.split("-")[1];
+            return (
+              <g key={cam.id} style={{cursor:"pointer"}}
+                onClick={()=>onCamClick(cam)}
+                onMouseEnter={()=>setHovCam(cam.id)}
+                onMouseLeave={()=>setHovCam(null)}>
+                {isH&&<circle cx={cam.x} cy={cam.y} r={20} fill="none" stroke={col} strokeWidth={0.8} opacity={0.2}/>}
+                <circle cx={cam.x} cy={cam.y} r={isH?13:9} fill="none" stroke={col} strokeWidth={isH?1.5:1} opacity={0.4}/>
+                <circle cx={cam.x} cy={cam.y} r={isH?7:5} fill={col} opacity={0.93}/>
+                <circle cx={cam.x} cy={cam.y} r={isH?3:2} fill="#fff" opacity={0.85}/>
+                <text x={cam.x} y={cam.y+16} textAnchor="middle" fill={col} fontSize="6.5" fontFamily="monospace" fontWeight="700" style={{pointerEvents:"none"}}>{num}</text>
+                {isH&&(
+                  <g>
+                    <rect x={cam.x+12} y={cam.y-18} width={cam.name.length*7.5+14} height={22} rx={4}
+                      fill="rgba(10,22,40,0.97)" stroke={col} strokeWidth={0.8}/>
+                    <text x={cam.x+19} y={cam.y-4} fill={col} fontSize="9" fontFamily="monospace" fontWeight="700">{cam.id}</text>
+                    <text x={cam.x+19+cam.id.length*5.5+2} y={cam.y-4} fill="#94a3b8" fontSize="9" fontFamily="monospace"> {cam.name}</text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+
+        <div style={{marginTop:12,display:"flex",flexWrap:"wrap",gap:5}}>
+          {cctvs.map(cam=>{
+            const col=cam.status==="정상"?"#166534":cam.status==="오류"?"#7f1d1d":"#78350f";
+            const tc =cam.status==="정상"?"#22c55e":cam.status==="오류"?"#ef4444":"#f59e0b";
+            return (
+              <button key={cam.id} onClick={()=>onCamClick(cam)}
+                style={{background:"#0f172a",border:`1px solid ${col}`,color:tc,borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:10,fontFamily:"monospace",transition:"all 0.15s"}}
+                onMouseEnter={e=>{e.target.style.background=col;e.target.style.color="#000"}}
+                onMouseLeave={e=>{e.target.style.background="#0f172a";e.target.style.color=tc}}>
+                {cam.id}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── 알림 대시보드 ─────────────────────────────────────────── */
+function AlertDashboard({alerts, onAlertClick, onMarkViewed}) {
+  const [filter, setFilter] = useState("전체");
+  const filtered = filter==="전체" ? alerts : alerts.filter(a=>a.risk===filter);
+
+  return (
+    <div style={{background:"#0a1628",borderRadius:12,border:"1px solid #1e3a5f"}}>
+      <div style={{padding:"12px 18px",background:"#0f1a2e",borderBottom:"1px solid #1e293b",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div style={{color:"#f97316",fontWeight:700,fontSize:15}}>⚠️ AI 위험 알림 대시보드</div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {["전체","높음","중간","낮음"].map(r=>(
+            <button key={r} onClick={()=>setFilter(r)}
+              style={{background:filter===r?(r==="전체"?"#1e3a5f":RISK_BG[r]):"transparent",color:filter===r?(r==="전체"?"#60a5fa":RISK_COLOR[r]):"#64748b",border:`1px solid ${filter===r?(r==="전체"?"#1e40af":RISK_COLOR[r]):"#1e293b"}`,borderRadius:5,padding:"3px 10px",cursor:"pointer",fontSize:11}}>
+              {r}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{padding:12}}>
+        {filtered.length===0&&<div style={{color:"#475569",textAlign:"center",padding:28,fontSize:13}}>해당 위험도의 알림이 없습니다</div>}
+        {filtered.map(a=>(
+          <div key={a.id} onClick={()=>{onAlertClick(a);onMarkViewed(a.id);}}
+            style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",marginBottom:6,background:a.viewed?"#0f172a":"#0f1a2e",border:`1px solid ${a.viewed?"#1e293b":RISK_COLOR[a.risk]}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s",opacity:a.viewed?0.7:1}}
+            onMouseEnter={e=>e.currentTarget.style.borderColor=RISK_COLOR[a.risk]}
+            onMouseLeave={e=>e.currentTarget.style.borderColor=a.viewed?"#1e293b":RISK_COLOR[a.risk]}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:RISK_COLOR[a.risk],flexShrink:0,boxShadow:!a.viewed?`0 0 6px ${RISK_COLOR[a.risk]}`:"none"}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                <span style={{color:"#e2e8f0",fontSize:13,fontWeight:600}}>{a.type}</span>
+                <span style={{background:RISK_BG[a.risk],color:RISK_COLOR[a.risk],fontSize:10,padding:"1px 7px",borderRadius:10,border:`1px solid ${RISK_COLOR[a.risk]}`}}>{a.risk}</span>
+                {!a.viewed&&<span style={{background:"#172554",color:"#60a5fa",fontSize:10,padding:"1px 7px",borderRadius:10}}>NEW</span>}
+              </div>
+              <div style={{display:"flex",gap:10,marginTop:3,flexWrap:"wrap"}}>
+                <span style={{color:"#64748b",fontSize:11,fontFamily:"monospace"}}>📷 {a.camId}</span>
+                <span style={{color:"#64748b",fontSize:11}}>📍 {a.camName}</span>
+                <span style={{color:"#64748b",fontSize:11,fontFamily:"monospace"}}>🕐 {a.time}</span>
+              </div>
+            </div>
+            <span style={{color:"#475569",fontSize:12}}>▶</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── 통계 ──────────────────────────────────────────────────── */
+function StatView({alerts}) {
+  const total = alerts.length;
+  const high  = alerts.filter(a=>a.risk==="높음").length;
+  const mid   = alerts.filter(a=>a.risk==="중간").length;
+  const low   = alerts.filter(a=>a.risk==="낮음").length;
+  const camCounts = CCTVS.map(cam=>({id:cam.id,count:alerts.filter(a=>a.camId===cam.id).length}))
+    .sort((a,b)=>b.count-a.count).filter(c=>c.count>0);
+  const maxC = Math.max(...TYPE_STATS.map(t=>t.count),1);
+  const maxM = Math.max(...camCounts.map(c=>c.count),1);
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16}}>
+      <div style={{gridColumn:"1/-1",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12}}>
+        {[["오늘 감지 총계",total,"#60a5fa"],["높음 위험",high,"#ef4444"],["중간 위험",mid,"#f59e0b"],["낮음 위험",low,"#22c55e"]].map(([label,val,col])=>(
+          <div key={label} style={{background:"#0f1a2e",border:"1px solid #1e293b",borderRadius:10,padding:"14px 16px"}}>
+            <div style={{color:"#64748b",fontSize:12,marginBottom:6}}>{label}</div>
+            <div style={{color:col,fontSize:30,fontWeight:700,fontFamily:"monospace"}}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{background:"#0a1628",border:"1px solid #1e293b",borderRadius:10,padding:16}}>
+        <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600,marginBottom:14}}>위험 유형별 감지 건수</div>
+        {TYPE_STATS.map(({type,count})=>(
+          <div key={type} style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+              <span style={{color:"#94a3b8",fontSize:12}}>{type}</span>
+              <span style={{color:"#60a5fa",fontSize:12,fontFamily:"monospace"}}>{count}건</span>
+            </div>
+            <div style={{height:6,background:"#1e293b",borderRadius:3,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${(count/maxC)*100}%`,background:"linear-gradient(90deg,#1e40af,#3b82f6)",borderRadius:3}}/>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{background:"#0a1628",border:"1px solid #1e293b",borderRadius:10,padding:16}}>
+        <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600,marginBottom:14}}>위험도 비율</div>
+        <div style={{display:"flex",height:22,borderRadius:6,overflow:"hidden",marginBottom:14}}>
+          {[["높음",high],["중간",mid],["낮음",low]].map(([r,v])=>(
+            <div key={r} style={{width:`${total?(v/total)*100:0}%`,background:RISK_COLOR[r],transition:"width 0.8s ease"}}/>
+          ))}
+        </div>
+        {[["높음",high],["중간",mid],["낮음",low]].map(([r,v])=>(
+          <div key={r} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <div style={{width:10,height:10,borderRadius:2,background:RISK_COLOR[r]}}/>
+            <span style={{color:"#94a3b8",fontSize:13}}>{r}</span>
+            <span style={{color:"#e2e8f0",fontWeight:600,fontSize:13}}>{v}건</span>
+            <span style={{color:"#475569",fontSize:12,marginLeft:"auto"}}>{total?Math.round((v/total)*100):0}%</span>
+          </div>
+        ))}
+
+        <div style={{marginTop:16,borderTop:"1px solid #1e293b",paddingTop:14}}>
+          <div style={{color:"#e2e8f0",fontSize:13,fontWeight:600,marginBottom:12}}>CCTV별 감지 횟수</div>
+          {camCounts.slice(0,5).map(({id,count})=>(
+            <div key={id} style={{marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                <span style={{color:"#94a3b8",fontSize:11,fontFamily:"monospace"}}>{id}</span>
+                <span style={{color:"#60a5fa",fontSize:11,fontFamily:"monospace"}}>{count}회</span>
+              </div>
+              <div style={{height:5,background:"#1e293b",borderRadius:2}}>
+                <div style={{height:"100%",width:`${(count/maxM)*100}%`,background:"#22c55e",borderRadius:2}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── 메인 앱 ───────────────────────────────────────────────── */
+function App() {
+  const [loggedIn,     setLoggedIn]     = useState(false);
+  const [form,         setForm]         = useState({id:"",pw:""});
+  const [loginErr,     setLoginErr]     = useState("");
+  const [nav,          setNav]          = useState("map");
+  const [alerts,       setAlerts]       = useState(INIT_ALERTS);
+  const [selectedCam,  setSelectedCam]  = useState(null);
+  const [stored,       setStored]       = useState({});
+  const [clock,        setClock]        = useState(new Date());
+  const [sideOpen,     setSideOpen]     = useState(true);
+
+  useEffect(()=>{
+    const t=setInterval(()=>setClock(new Date()),1000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  const handleLogin = ()=>{
+    if(form.id==="sushi"&&form.pw==="sushi10"){ setLoggedIn(true); setLoginErr(""); }
+    else setLoginErr("아이디 또는 비밀번호가 올바르지 않습니다.");
+  };
+
+  const handleStore     = (camId,data) => setStored(p=>({...p,[camId]:data}));
+  const markViewed      = id => setAlerts(p=>p.map(a=>a.id===id?{...a,viewed:true}:a));
+  const unviewed        = alerts.filter(a=>!a.viewed).length;
+  const handleAlertClick = a => {
+    const cam=CCTVS.find(c=>c.id===a.camId);
+    if(cam){ setSelectedCam(cam); setNav("map"); }
+    markViewed(a.id);
+  };
+
+  /* 로그인 화면 */
+  if(!loggedIn) return (
+    <div style={{minHeight:"100vh",background:"#030712",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"monospace"}}>
+      <div style={{width:"min(400px,92%)"}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{width:64,height:64,margin:"0 auto 16px",background:"#0f1a2e",border:"2px solid #1e40af",borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🛡️</div>
+          <div style={{color:"#60a5fa",fontSize:20,fontWeight:700,letterSpacing:2}}>SMART CCTV</div>
+          <div style={{color:"#1e40af",fontSize:11,letterSpacing:4,marginTop:3}}>PRIVACY PROTECTION SYSTEM</div>
+          <div style={{color:"#475569",fontSize:11,marginTop:6}}>서울시 강남구 관제센터 · 관리자 전용</div>
+        </div>
+        <div style={{background:"#0a1628",border:"1px solid #1e3a5f",borderRadius:16,padding:28}}>
+          <div style={{color:"#94a3b8",fontSize:12,marginBottom:20,padding:"8px 12px",background:"#0f172a",borderRadius:8,border:"1px solid #1e293b",lineHeight:1.7}}>
+            ⚠️ 본 시스템은 <span style={{color:"#ef4444",fontWeight:700}}>관리자 전용</span>입니다.<br/>일반 시민의 접근이 금지됩니다.
+          </div>
+          {[["관리자 아이디","id","text","sushi"],["비밀번호","pw","password","••••••••"]].map(([lbl,key,type,ph])=>(
+            <div key={key} style={{marginBottom:14}}>
+              <label style={{color:"#64748b",fontSize:12,display:"block",marginBottom:5}}>{lbl}</label>
+              <input type={type} value={form[key]} placeholder={ph}
+                onChange={e=>setForm(p=>({...p,[key]:e.target.value}))}
+                onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+                style={{width:"100%",background:"#0f172a",border:"1px solid #1e3a5f",color:"#e2e8f0",borderRadius:8,padding:"11px 14px",fontSize:14,outline:"none"}}/>
+            </div>
+          ))}
+          {loginErr&&<div style={{background:"#450a0a",border:"1px solid #7f1d1d",color:"#ef4444",borderRadius:8,padding:"8px 12px",fontSize:12,marginBottom:14}}>✕ {loginErr}</div>}
+          <button onClick={handleLogin} style={{width:"100%",background:"#1e40af",border:"none",color:"#fff",borderRadius:8,padding:"13px",fontSize:15,fontWeight:700,cursor:"pointer",letterSpacing:1}}>
+            관리자 로그인
+          </button>
+          <div style={{marginTop:14,color:"#334155",fontSize:11,textAlign:"center"}}>테스트 계정: sushi / sushi10</div>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* 대시보드 */
+  const navItems=[
+    {key:"map",    label:"CCTV 지도", icon:"🗺️"},
+    {key:"alerts", label:"알림",       icon:"⚠️"},
+    {key:"stats",  label:"통계",       icon:"📊"},
+  ];
+
+  return (
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#030712",color:"#e2e8f0"}}>
+      {/* 상단 바 */}
+      <div style={{background:"#0a1628",borderBottom:"1px solid #1e3a5f",padding:"0 16px",display:"flex",alignItems:"center",gap:12,height:50,flexShrink:0}}>
+        <button onClick={()=>setSideOpen(p=>!p)} style={{background:"transparent",border:"none",color:"#64748b",cursor:"pointer",fontSize:18,padding:"0 4px"}}>☰</button>
+        <span style={{fontSize:18}}>🛡️</span>
+        <span style={{color:"#60a5fa",fontWeight:700,fontSize:14,letterSpacing:1}}>SMART CCTV</span>
+        <span style={{color:"#334155",fontSize:13}}>|</span>
+        <span style={{color:"#64748b",fontSize:12,display:"none"}}>강남구 관제센터</span>
+        <span style={{color:"#64748b",fontSize:12}}>강남구 관제센터</span>
+        <div style={{flex:1}}/>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <div style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",boxShadow:"0 0 5px #22c55e",animation:"blink 2s infinite"}}/>
+          <span style={{color:"#22c55e",fontSize:12,fontFamily:"monospace"}}>{clock.toLocaleTimeString("ko-KR")}</span>
+        </div>
+        <span style={{color:"#475569",fontSize:12}}>sushi</span>
+        <button onClick={()=>setLoggedIn(false)} style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}}>로그아웃</button>
+      </div>
+
+      <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+        {/* 사이드바 */}
+        <div style={{width:sideOpen?192:0,background:"#0a1628",borderRight:"1px solid #1e293b",flexShrink:0,overflow:"hidden",transition:"width 0.25s ease",display:"flex",flexDirection:"column"}}>
+          <div style={{padding:"14px 0",flex:1,minWidth:192}}>
+            <div style={{padding:"0 12px 10px",borderBottom:"1px solid #1e293b",marginBottom:10}}>
+              <div style={{color:"#334155",fontSize:10,letterSpacing:2}}>MENU</div>
+            </div>
+            {navItems.map(({key,label,icon})=>(
+              <button key={key} onClick={()=>setNav(key)}
+                style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:nav===key?"#0f1a2e":"transparent",borderLeft:nav===key?"3px solid #3b82f6":"3px solid transparent",border:"none",color:nav===key?"#60a5fa":"#64748b",cursor:"pointer",fontSize:13,textAlign:"left"}}>
+                <span>{icon}</span>
+                <span style={{fontWeight:nav===key?600:400}}>{label}</span>
+                {key==="alerts"&&unviewed>0&&<span style={{marginLeft:"auto",background:"#ef4444",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10}}>{unviewed}</span>}
+              </button>
+            ))}
+            <div style={{margin:"14px 10px",padding:11,background:"#0f1a2e",borderRadius:8,border:"1px solid #166534"}}>
+              <div style={{color:"#22c55e",fontSize:11,fontWeight:600,marginBottom:5}}>🔒 개인정보 보호</div>
+              <div style={{color:"#475569",fontSize:10,lineHeight:1.7}}>
+                · 사람 추적 모자이크<br/>
+                · 사람 얼굴·신체 보호<br/>
+                · 원본 영상 보관 없음<br/>
+                · AI 위험 영상만 확인
+              </div>
+            </div>
+            <div style={{padding:"0 12px",marginTop:"auto"}}>
+              <div style={{color:"#1e293b",fontSize:10,textAlign:"center"}}>
+                운영 현황: <span style={{color:"#22c55e"}}>{CCTVS.filter(c=>c.status==="정상").length}</span>/{CCTVS.length} 정상
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 본문 */}
+        <div style={{flex:1,overflow:"auto",padding:20}}>
+          {nav==="map"&&(
+            <>
+              <div style={{color:"#94a3b8",fontSize:13,marginBottom:14}}>
+                총 <span style={{color:"#60a5fa",fontWeight:600}}>{CCTVS.length}</span>개 CCTV 운영 중 · CAM 클릭 시 영상 업로드 및 실시간 모자이크 처리
+              </div>
+              <MapView cctvs={CCTVS} onCamClick={setSelectedCam}/>
+            </>
+          )}
+          {nav==="alerts"&&(
+            <>
+              <div style={{color:"#94a3b8",fontSize:13,marginBottom:14}}>
+                AI 선별 위험 영상 · <span style={{color:"#ef4444"}}>미확인 {unviewed}건</span>
+              </div>
+              <AlertDashboard alerts={alerts} onAlertClick={handleAlertClick} onMarkViewed={markViewed}/>
+            </>
+          )}
+          {nav==="stats"&&(
+            <>
+              <div style={{color:"#94a3b8",fontSize:13,marginBottom:14}}>
+                오늘({new Date().toLocaleDateString("ko-KR")}) 기준 통계
+              </div>
+              <StatView alerts={alerts}/>
+            </>
+          )}
+        </div>
+      </div>
+
+      {selectedCam&&(
+        <CCTVModal cam={selectedCam} onClose={()=>setSelectedCam(null)}
+          stored={stored[selectedCam.id]||null} onStore={handleStore}/>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
